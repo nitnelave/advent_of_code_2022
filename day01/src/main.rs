@@ -1,10 +1,11 @@
 #![feature(binary_heap_into_iter_sorted)]
 
+use std::io::Read;
+
 fn main() {
-    let path_name = std::env::args().nth(1).expect("Please give an input file");
-    let path = std::path::Path::new(&path_name);
-    let heap = std::fs::read_to_string(path)
-        .expect("Error reading")
+    let mut contents = String::new();
+    std::io::stdin().read_to_string(&mut contents).unwrap();
+    let heap = contents
         .split("\n\n")
         .map(|elf| {
             elf.split('\n')
