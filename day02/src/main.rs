@@ -23,7 +23,7 @@ enum Outcome {
 
 impl From<i32> for Move {
     fn from(m: i32) -> Self {
-        match (m + 3) % 3 {
+        match m.rem_euclid(3) {
             0 => Move::Scissors,
             1 => Move::Rock,
             2 => Move::Paper,
@@ -34,7 +34,7 @@ impl From<i32> for Move {
 
 impl From<i32> for Outcome {
     fn from(m: i32) -> Self {
-        match (m + 3) % 3 {
+        match m.rem_euclid(3) {
             0 => Outcome::Draw,
             1 => Outcome::Win,
             2 => Outcome::Lose,
@@ -46,6 +46,9 @@ impl From<i32> for Outcome {
 impl Outcome {
     fn to_move(self, theirs: Theirs) -> Yours {
         Yours((theirs.0 as i32 + self as i32).into())
+    }
+    fn to_score(self) -> i32 {
+        3 * self as i32 + 3
     }
 }
 
@@ -82,6 +85,12 @@ impl TryFrom<&str> for Outcome {
     type Error = Error;
 }
 
+impl Yours {
+    fn to_score(self) -> i32 {
+        self.0 as i32
+    }
+}
+
 fn parse_line<S: AsRef<str>>(line: S) -> Result<(Theirs, Yours, Outcome)> {
     let (theirs, yours) = line.as_ref().split_once(' ').ok_or("No space")?;
     Ok((
@@ -96,7 +105,7 @@ fn to_outcome(theirs: Theirs, yours: Yours) -> Outcome {
 }
 
 fn to_score(theirs: Theirs, yours: Yours) -> i32 {
-    (to_outcome(theirs, yours) as i32 * 3) + 3 + yours.0 as i32
+    to_outcome(theirs, yours).to_score() + yours.to_score()
 }
 
 fn main() {
