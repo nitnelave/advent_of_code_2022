@@ -9,6 +9,12 @@ enum Move {
 }
 
 #[derive(PartialEq, Eq, Clone, Copy)]
+struct Theirs(Move);
+
+#[derive(PartialEq, Eq, Clone, Copy)]
+struct Yours(Move);
+
+#[derive(PartialEq, Eq, Clone, Copy)]
 enum Outcome {
     Lose = -1,
     Draw = 0,
@@ -38,8 +44,8 @@ impl From<i32> for Outcome {
 }
 
 impl Outcome {
-    fn to_move(self, theirs: Move) -> Move {
-        (theirs as i32 + self as i32).into()
+    fn to_move(self, theirs: Theirs) -> Yours {
+        Yours((theirs.0 as i32 + self as i32).into())
     }
 }
 
@@ -76,17 +82,21 @@ impl TryFrom<&str> for Outcome {
     type Error = Error;
 }
 
-fn parse_line<S: AsRef<str>>(line: S) -> Result<(Move, Move, Outcome)> {
+fn parse_line<S: AsRef<str>>(line: S) -> Result<(Theirs, Yours, Outcome)> {
     let (theirs, yours) = line.as_ref().split_once(' ').ok_or("No space")?;
-    Ok((theirs.try_into()?, yours.try_into()?, yours.try_into()?))
+    Ok((
+        Theirs(theirs.try_into()?),
+        Yours(yours.try_into()?),
+        yours.try_into()?,
+    ))
 }
 
-fn to_outcome(theirs: Move, yours: Move) -> Outcome {
-    (yours as i32 - theirs as i32).into()
+fn to_outcome(theirs: Theirs, yours: Yours) -> Outcome {
+    (yours.0 as i32 - theirs.0 as i32).into()
 }
 
-fn to_score(theirs: Move, yours: Move) -> i32 {
-    (to_outcome(theirs, yours) as i32 * 3) + 3 + yours as i32
+fn to_score(theirs: Theirs, yours: Yours) -> i32 {
+    (to_outcome(theirs, yours) as i32 * 3) + 3 + yours.0 as i32
 }
 
 fn main() {
@@ -107,11 +117,11 @@ mod tests {
     use super::*;
     #[test]
     fn test_to_score() {
-        assert_eq!(to_score(Move::Rock, Move::Rock), 4);
-        assert_eq!(to_score(Move::Rock, Move::Paper), 8);
-        assert_eq!(to_score(Move::Rock, Move::Scissors), 3);
-        assert_eq!(to_score(Move::Scissors, Move::Rock), 7);
-        assert_eq!(to_score(Move::Scissors, Move::Paper), 2);
-        assert_eq!(to_score(Move::Scissors, Move::Scissors), 6);
+        assert_eq!(to_score(Theirs(Move::Rock), Yours(Move::Rock)), 4);
+        assert_eq!(to_score(Theirs(Move::Rock), Yours(Move::Paper)), 8);
+        assert_eq!(to_score(Theirs(Move::Rock), Yours(Move::Scissors)), 3);
+        assert_eq!(to_score(Theirs(Move::Scissors), Yours(Move::Rock)), 7);
+        assert_eq!(to_score(Theirs(Move::Scissors), Yours(Move::Paper)), 2);
+        assert_eq!(to_score(Theirs(Move::Scissors), Yours(Move::Scissors)), 6);
     }
 }
