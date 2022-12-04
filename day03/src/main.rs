@@ -1,9 +1,11 @@
+#![feature(array_chunks, array_methods)]
+
 type Error = &'static str;
 type Result<T> = std::result::Result<T, Error>;
 #[derive(Ord, PartialOrd, PartialEq, Eq, Copy, Clone)]
 struct Letter(u8);
 struct Pocket(std::collections::BTreeSet<Letter>);
-struct BackPack((Pocket, Pocket));
+struct BackPack(Pocket, Pocket);
 
 impl TryFrom<&u8> for Letter {
     type Error = Error;
@@ -41,11 +43,11 @@ impl Pocket {
 
 impl BackPack {
     fn common_letter(&self) -> Result<Letter> {
-        self.0 .0.common_letter(&self.0 .1)
+        self.0.common_letter(&self.1)
     }
 
     fn all_items(&self) -> impl Iterator<Item = &Letter> {
-        self.0 .0 .0.union(&self.0 .1 .0)
+        self.0 .0.union(&self.1 .0)
     }
 }
 
@@ -64,18 +66,79 @@ fn parse_backpack<S: AsRef<str>>(line: S) -> Result<BackPack> {
         return Err("Odd line length");
     }
     let (left, right) = line.as_ref().as_bytes().split_at(len / 2);
-    Ok(BackPack((parse_pocket(left)?, parse_pocket(right)?)))
+    Ok(BackPack(parse_pocket(left)?, parse_pocket(right)?))
 }
 
-fn get_group_badge(packs: &[BackPack]) -> Result<Letter> {
-    if packs.len() != 3 {
-        return Err("Too small group of elves");
+struct SetIntersection<'a, const N: usize, T, I>
+where
+    T: 'a + Ord,
+    I: Iterator<Item = &'a T>,
+{
+    iterators: [std::iter::Peekable<I>; N],
+}
+
+impl<'a, const N: usize, T, I> SetIntersection<'a, N, T, I>
+where
+    T: 'a + Ord,
+    I: Iterator<Item = &'a T>,
+{
+    fn new(iterators: [I; N]) -> Self {
+        Self {
+            iterators: iterators.map(Iterator::peekable),
+        }
     }
-    use iter_set::intersection;
-    let mut group_badges = intersection(
-        intersection(packs[0].all_items(), packs[1].all_items()),
-        packs[2].all_items(),
-    );
+}
+
+impl<'a, const N: usize, T, I> Iterator for SetIntersection<'a, N, T, I>
+where
+    T: 'a + Ord,
+    I: Iterator<Item = &'a T>,
+{
+    type Item = &'a T;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if N == 0 {
+            return None;
+        }
+        loop {
+            let next = match self.iterators[0].next() {
+                None => return None,
+                Some(v) => v,
+            };
+            let mut all_matches = true;
+            for it in &mut self.iterators[1..] {
+                loop {
+                    use std::cmp::Ordering;
+                    match it.peek().map(|v| v.cmp(&next)) {
+                        // Keep iterating on this iterator, we haven't caught up.
+                        Some(Ordering::Less) => {
+                            it.next();
+                        }
+                        // We caught up and that's a match.
+                        Some(Ordering::Equal) => break,
+                        // We passed it. No match.
+                        Some(Ordering::Greater) => {
+                            all_matches = false;
+                            break;
+                        }
+                        // Got to the end, no more matches.
+                        None => return None,
+                    }
+                }
+                if !all_matches {
+                    break;
+                }
+            }
+            if all_matches {
+                return Some(next);
+            }
+            // No match, advance the first iterator again.
+        }
+    }
+}
+
+fn get_group_badge(packs: &[BackPack; 3]) -> Result<Letter> {
+    let mut group_badges = SetIntersection::new(packs.each_ref().map(|p| p.all_items()));
     let value = group_badges.next().ok_or("No badge for group")?;
     if group_badges.next().is_some() {
         Err("Multiple badges for group")
@@ -102,7 +165,7 @@ fn main() {
     println!(
         "Part 2: {}",
         backpacks
-            .chunks(3)
+            .array_chunks::<3>()
             .map(|group| get_group_badge(group).map(Letter::to_integer))
             .sum::<Result<u32>>()
             .unwrap()
