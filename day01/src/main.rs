@@ -1,5 +1,3 @@
-#![feature(binary_heap_into_iter_sorted)]
-
 use std::{io::Read, mem::MaybeUninit};
 
 struct UninitAssoc<T>(T);
