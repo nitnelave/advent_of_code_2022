@@ -20,3 +20,5 @@ overflow-checks = false
 lto = true
 panic = "abort"
 strip = true
+opt-level = "z"
+codegen-units = 1
