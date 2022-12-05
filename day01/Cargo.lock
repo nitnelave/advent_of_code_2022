@@ -3,5 +3,13 @@
 version = 3
 
 [[package]]
+name = "compiler_builtins"
+version = "0.1.84"
+source = "git+https://github.com/rust-lang/compiler-builtins#cb3ca5eb031e2c4792a6f5b531387b0e00fb98b8"
+
+[[package]]
 name = "day01"
 version = "0.1.0"
+dependencies = [
+ "compiler_builtins",
+]
