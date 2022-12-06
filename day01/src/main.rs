@@ -12,11 +12,11 @@ struct SmallBuffer([u8; SMALL_BUFFER_SIZE]);
 #[repr(align(64))]
 struct BigBuffer([u8; BIG_BUFFER_SIZE]);
 
-struct TopN<const N: usize, T: Ord + Copy> {
-    elements: [T; N],
+struct TopN<T: Ord + Copy> {
+    elements: [T; 3],
 }
 
-impl<const N: usize, T: Ord + Copy> TopN<N, T> {
+impl<T: Ord + Copy> TopN<T> {
     fn push(&mut self, mut val: T) {
         for mut v in &mut self.elements {
             if val > *v {
@@ -39,7 +39,7 @@ impl<const N: usize, T: Ord + Copy> TopN<N, T> {
         }
     }
 
-    fn top_n(&self) -> &[T; N] {
+    fn top_n(&self) -> &[T; 3] {
         &self.elements
     }
 }
@@ -113,38 +113,31 @@ fn int_to_buf(mut input: u32, buf: &mut SmallBuffer) -> &[u8] {
     }
 }
 
-fn parse_int(input: &[u8]) -> u32 {
-    let mut res = 0;
-    for c in input {
-        res *= 10;
-        res += (c - b'0') as u32;
-    }
-    res
-}
-
 fn print_int(i: u32) {
-    let mut buf = SmallBuffer([0; SMALL_BUFFER_SIZE]);
-    let output = int_to_buf(i, &mut buf);
+    static mut BUF: SmallBuffer = SmallBuffer([0; SMALL_BUFFER_SIZE]);
+    let output = int_to_buf(i, unsafe { &mut BUF });
     write(STDOUT_FILENO, output);
 }
 
 #[no_mangle]
 pub extern "C" fn _start() -> ! {
-    let mut input_buffer = BigBuffer([0; BIG_BUFFER_SIZE]);
-    let contents = read_stdin(&mut input_buffer);
-    let mut previous_start = 0;
+    static mut INPUT_BUFFER: BigBuffer = BigBuffer([0; BIG_BUFFER_SIZE]);
+    let contents = unsafe { read_stdin(&mut INPUT_BUFFER) };
+    let mut elf_sum = 0;
+    let mut num = 0;
     let mut top_3 = TopN { elements: [0; 3] };
     unsafe {
         for i in 0..contents.len() - 1 {
-            if contents[i] == b'\n' && *contents.get_unchecked(i + 1) == b'\n' {
-                top_3.push(
-                    contents
-                        .get_unchecked(previous_start..i)
-                        .split(|c| *c == b'\n')
-                        .map(|l| parse_int(l))
-                        .sum(),
-                );
-                previous_start = i + 2;
+            if contents[i] == b'\n' {
+                elf_sum += num;
+                num = 0;
+                if *contents.get_unchecked(i + 1) == b'\n' {
+                    top_3.push(elf_sum);
+                    elf_sum = 0;
+                }
+            } else {
+                num *= 10;
+                num += (contents[i] - b'0') as u32;
             }
         }
     }
