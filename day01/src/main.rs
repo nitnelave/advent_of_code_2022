@@ -4,8 +4,8 @@
 
 use core::arch::asm;
 
-const BIG_BUFFER_SIZE: usize = 100000;
-const SMALL_BUFFER_SIZE: usize = 16;
+const BIG_BUFFER_SIZE: usize = 1 << 16;
+const SMALL_BUFFER_SIZE: usize = 8;
 
 #[repr(align(64))]
 struct SmallBuffer([u8; SMALL_BUFFER_SIZE]);
@@ -27,8 +27,16 @@ impl<const N: usize, T: Ord + Copy> TopN<N, T> {
 
     fn max(&self) -> T {
         //self.elements.iter().max().unwrap()
-        let tmp = if self.elements[0] > self.elements[1] { self.elements[0] } else { self.elements[1] };
-        if tmp > self.elements[2] { tmp } else { self.elements[2] }
+        let tmp = if self.elements[0] > self.elements[1] {
+            self.elements[0]
+        } else {
+            self.elements[1]
+        };
+        if tmp > self.elements[2] {
+            tmp
+        } else {
+            self.elements[2]
+        }
     }
 
     fn top_n(&self) -> &[T; N] {
@@ -45,7 +53,7 @@ const STDIN_FILENO: u32 = 0;
 const STDOUT_FILENO: u32 = 1;
 
 fn exit(code: i32) -> ! {
-    let syscall_number: i64 = 60;
+    let syscall_number: u32 = 60;
     unsafe {
         asm!(
             "syscall",
@@ -56,7 +64,7 @@ fn exit(code: i32) -> ! {
     }
 }
 fn write(fd: u32, buf: &[u8]) {
-    let syscall_number: i64 = 1;
+    let syscall_number: u32 = 1;
     unsafe {
         asm!(
             "syscall",
@@ -72,7 +80,7 @@ fn write(fd: u32, buf: &[u8]) {
 }
 
 fn read(fd: u32, buf: &mut [u8]) -> usize {
-    let syscall_number: i64 = 0;
+    let syscall_number: u32 = 0;
     let res;
     unsafe {
         asm!(
@@ -90,7 +98,7 @@ fn read(fd: u32, buf: &mut [u8]) -> usize {
     res
 }
 
-fn int_to_buf(mut input: i64, buf: &mut SmallBuffer) -> &[u8] {
+fn int_to_buf(mut input: u32, buf: &mut SmallBuffer) -> &[u8] {
     buf.0[SMALL_BUFFER_SIZE - 1] = b'\n';
     let mut count = SMALL_BUFFER_SIZE - 2;
     unsafe {
@@ -105,16 +113,16 @@ fn int_to_buf(mut input: i64, buf: &mut SmallBuffer) -> &[u8] {
     }
 }
 
-fn parse_int(input: &[u8]) -> i64 {
+fn parse_int(input: &[u8]) -> u32 {
     let mut res = 0;
     for c in input {
         res *= 10;
-        res += (c - b'0') as i64;
+        res += (c - b'0') as u32;
     }
     res
 }
 
-fn print_int(i: i64) {
+fn print_int(i: u32) {
     let mut buf = SmallBuffer([0; SMALL_BUFFER_SIZE]);
     let output = int_to_buf(i, &mut buf);
     write(STDOUT_FILENO, output);
@@ -141,7 +149,8 @@ pub extern "C" fn _start() -> ! {
         }
     }
     print_int(top_3.max());
-    print_int(top_3.top_n().iter().sum::<i64>());
+    let sum = top_3.top_n()[0] + top_3.top_n()[1] + top_3.top_n()[2];
+    print_int(sum);
     exit(0);
 }
 
