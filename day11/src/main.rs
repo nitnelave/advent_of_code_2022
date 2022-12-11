@@ -1,7 +1,8 @@
 #![feature(iter_array_chunks, iterator_try_collect)]
+
+use std::collections::VecDeque;
 type Item = usize;
 
-#[derive(Debug, Clone)]
 enum Op {
     Square,
     Add(usize),
@@ -18,7 +19,6 @@ impl Op {
     }
 }
 
-#[derive(Debug, Clone)]
 struct Action {
     divisible_by: usize,
     if_true: usize,
@@ -35,9 +35,7 @@ impl Action {
     }
 }
 
-#[derive(Debug, Clone)]
 struct Monkey {
-    current_items: Vec<Item>,
     operation: Op,
     action: Action,
 }
@@ -48,114 +46,135 @@ struct Throw {
 }
 
 impl Monkey {
-    fn throw_one_item(&mut self, common_divisor: usize, worried: bool) -> Option<Throw> {
-        let item = self.operation.apply(*self.current_items.first()?, worried) % common_divisor;
-        self.current_items.remove(0);
-        Some(Throw {
+    fn throw_one_item(&self, item: Item, common_divisor: usize, worried: bool) -> Throw {
+        let item = self.operation.apply(item, worried) % common_divisor;
+        Throw {
             item,
             to: self.action.get_target(item),
-        })
+        }
     }
 }
 
-impl TryFrom<[String; 7]> for Monkey {
-    type Error = &'static str;
-
-    fn try_from(value: [String; 7]) -> Result<Self, Self::Error> {
-        if !value[0].starts_with("Monkey ") {
-            return Err("No monkey");
+fn parse_monkey(value: [String; 7]) -> Result<(Monkey, VecDeque<Item>), &'static str> {
+    if !value[0].starts_with("Monkey ") {
+        return Err("No monkey");
+    }
+    let current_items = value[1]
+        .strip_prefix("  Starting items: ")
+        .ok_or("No items")?
+        .split(", ")
+        .map(str::parse::<Item>)
+        .try_collect()
+        .map_err(|_| "Invalid item")?;
+    let operation = {
+        let op = value[2]
+            .strip_prefix("  Operation: new = old ")
+            .ok_or("No op")?;
+        if op == "* old" {
+            Op::Square
+        } else if let Some(v) = op.strip_prefix("* ") {
+            Op::Multiply(str::parse::<usize>(v).map_err(|_| "invalid mult")?)
+        } else if let Some(v) = op.strip_prefix("+ ") {
+            Op::Add(str::parse::<usize>(v).map_err(|_| "invalid add")?)
+        } else {
+            return Err("Invalid operation");
         }
-        let current_items = value[1]
-            .strip_prefix("  Starting items: ")
-            .ok_or("No items")?
-            .split(", ")
-            .map(str::parse::<Item>)
-            .try_collect::<Vec<_>>()
-            .map_err(|_| "Invalid item")?;
-        let operation = {
-            let op = value[2]
-                .strip_prefix("  Operation: new = old ")
-                .ok_or("No op")?;
-            if op == "* old" {
-                Op::Square
-            } else if let Some(v) = op.strip_prefix("* ") {
-                Op::Multiply(str::parse::<usize>(v).map_err(|_| "invalid mult")?)
-            } else if let Some(v) = op.strip_prefix("+ ") {
-                Op::Add(str::parse::<usize>(v).map_err(|_| "invalid add")?)
-            } else {
-                return Err("Invalid operation");
-            }
+    };
+    let parse_trailing_int =
+        |line: &str, prefix, invalid_prefix_error, parse_error| -> Result<usize, &'static str> {
+            line.strip_prefix(prefix)
+                .ok_or(invalid_prefix_error)?
+                .parse::<usize>()
+                .map_err(|_| parse_error)
         };
-        let divisible_by = value[3]
-            .strip_prefix("  Test: divisible by ")
-            .ok_or("Invalid test")?
-            .parse::<usize>()
-            .map_err(|_| "Invalid divisor")?;
-        let if_true = value[4]
-            .strip_prefix("    If true: throw to monkey ")
-            .ok_or("Invalid if_true")?
-            .parse::<usize>()
-            .map_err(|_| "Invalid monkey")?;
-        let if_false = value[5]
-            .strip_prefix("    If false: throw to monkey ")
-            .ok_or("Invalid if_false")?
-            .parse::<usize>()
-            .map_err(|_| "Invalid monkey")?;
-        Ok(Monkey {
-            current_items,
+    let divisible_by = parse_trailing_int(
+        &value[3],
+        "  Test: divisible by ",
+        "Invalid test",
+        "Invalid divisor",
+    )?;
+    let if_true = parse_trailing_int(
+        &value[4],
+        "    If true: throw to monkey ",
+        "Invalid if_true",
+        "Invalid monkey",
+    )?;
+    let if_false = parse_trailing_int(
+        &value[5],
+        "    If false: throw to monkey ",
+        "Invalid if_false",
+        "Invalid monkey",
+    )?;
+    Ok((
+        Monkey {
             operation,
             action: Action {
                 divisible_by,
                 if_true,
                 if_false,
             },
-        })
-    }
+        },
+        current_items,
+    ))
 }
 
 fn run_one_round(
-    monkeys: &mut Vec<Monkey>,
-    items_inspected: &mut Vec<usize>,
+    monkeys: &[Monkey],
+    starting_items: &mut [VecDeque<Item>],
+    items_inspected: &mut [usize],
     common_divisor: usize,
     worried: bool,
 ) {
     for i in 0..monkeys.len() {
-        while let Some(Throw { item, to }) = monkeys[i].throw_one_item(common_divisor, worried) {
+        while let Some(Throw { item, to }) = starting_items[i]
+            .pop_front()
+            .map(|item| monkeys[i].throw_one_item(item, common_divisor, worried))
+        {
             items_inspected[i] += 1;
-            monkeys[to].current_items.push(item);
+            starting_items[to].push_back(item);
         }
     }
 }
 
 fn run_all_rounds(
-    mut monkeys: Vec<Monkey>,
+    monkeys: &[Monkey],
+    mut starting_items: Vec<VecDeque<Item>>,
     num_rounds: usize,
     common_divisor: usize,
     worried: bool,
 ) -> usize {
     let mut items_inspected = vec![0; monkeys.len()];
     for _ in 0..num_rounds {
-        run_one_round(&mut monkeys, &mut items_inspected, common_divisor, worried);
+        run_one_round(
+            monkeys,
+            &mut starting_items,
+            &mut items_inspected,
+            common_divisor,
+            worried,
+        );
     }
     items_inspected.sort();
     items_inspected[items_inspected.len() - 1] * items_inspected[items_inspected.len() - 2]
 }
 
 fn main() {
-    let monkeys = std::io::stdin()
+    let (monkeys, starting_items): (Vec<_>, Vec<_>) = std::io::stdin()
         .lines()
         .map(Result::unwrap)
         .array_chunks::<7>()
-        .map(Monkey::try_from)
+        .map(parse_monkey)
         .map(Result::unwrap)
-        .collect::<Vec<_>>();
+        .unzip();
     let common_divisor = monkeys
         .iter()
         .map(|m| m.action.divisible_by)
         .product::<usize>();
     println!(
         "{}",
-        run_all_rounds(monkeys.clone(), 20, common_divisor, false)
+        run_all_rounds(&monkeys, starting_items.clone(), 20, common_divisor, false)
     );
-    println!("{}", run_all_rounds(monkeys, 10000, common_divisor, true));
+    println!(
+        "{}",
+        run_all_rounds(&monkeys, starting_items, 10000, common_divisor, true)
+    );
 }
