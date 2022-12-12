@@ -52,9 +52,7 @@ impl Grid<u8> {
     }
 }
 
-#[derive(Clone, Copy)]
 struct CellValue {
-    //parent: (i64, i64),
     distance: usize,
     visited: bool,
 }
@@ -62,16 +60,16 @@ struct CellValue {
 impl Default for CellValue {
     fn default() -> Self {
         Self {
-            /*parent: (i64::max_value(),i64::max_value()), */ distance: usize::max_value(),
+            distance: usize::max_value(),
             visited: false,
         }
     }
 }
 
-#[derive(PartialEq, Eq)]
+#[derive(PartialEq, Eq, PartialOrd, Ord)]
 struct Cell {
-    coords: (i64, i64),
     distance: usize,
+    coords: (i64, i64),
 }
 
 impl Default for Cell {
@@ -79,24 +77,6 @@ impl Default for Cell {
         Self {
             coords: (i64::max_value(), i64::max_value()),
             distance: usize::max_value(),
-        }
-    }
-}
-
-impl PartialOrd for Cell {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-// Sorted by distance.
-impl Ord for Cell {
-    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        let d = self.distance.cmp(&other.distance);
-        if d.is_eq() {
-            self.coords.cmp(&other.coords)
-        } else {
-            d
         }
     }
 }
@@ -127,6 +107,7 @@ fn run_dijkstra(input_grid: &Grid<u8>, start: (i64, i64), reset_at_a: bool) -> O
         if dijkstra_grid[c.coords].visited {
             continue;
         }
+        assert_eq!(dijkstra_grid[c.coords].distance, c.distance);
         dijkstra_grid[c.coords].visited = true;
         for (dx, dy) in CARDINALS {
             let new_coords = (c.coords.0 + dx, c.coords.1 + dy);
