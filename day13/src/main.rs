@@ -97,8 +97,8 @@ fn main() {
     let delim_2 = Node::List(vec![Node::List(vec![Node::Int(6)])]);
     nodes.push(delim_1.clone());
     nodes.push(delim_2.clone());
-    nodes.sort();
-    let pos_1 = nodes.iter().position(|n| *n == delim_1).unwrap() + 1;
-    let pos_2 = nodes.iter().position(|n| *n == delim_2).unwrap() + 1;
+    nodes.sort_unstable();
+    let pos_1 = nodes.binary_search(&delim_1).unwrap() + 1;
+    let pos_2 = nodes.binary_search(&delim_2).unwrap() + 1;
     println!("{}", pos_1 * pos_2);
 }
