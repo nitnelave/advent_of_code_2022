@@ -1,5 +1,5 @@
 #![feature(entry_insert)]
-use std::collections::{BTreeMap, BinaryHeap, HashMap};
+use std::collections::{BTreeMap, HashMap};
 
 #[derive(Debug)]
 struct Grid<T> {
@@ -61,97 +61,192 @@ fn parse_valve(line: String) -> (ValveName, Valve) {
     )
 }
 
-#[derive(PartialEq, Eq, Debug)]
-struct ValveState {
-    index: usize,
-    step: usize,
-    total_pressure_released: usize,
-    current_flow_rate: usize,
+#[derive(Eq, Hash, PartialEq, Clone)]
+struct State {
+    visited_states: u64,
+    time_reached: u8,
+    elephant_time_reached: u8,
+    current_state: usize,
+    elephant_current_state: usize,
 }
 
-impl PartialOrd for ValveState {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        Some(self.cmp(other))
+impl State {
+    fn current_state(&self, is_elephant: bool) -> usize {
+        if is_elephant {
+            self.elephant_current_state
+        } else {
+            self.current_state
+        }
+    }
+    fn time_reached(&self, is_elephant: bool) -> u8 {
+        if is_elephant {
+            self.elephant_time_reached
+        } else {
+            self.time_reached
+        }
+    }
+
+    fn update_with(
+        &self,
+        visited_states: u64,
+        new_state: usize,
+        time_reached: u8,
+        is_elephant: bool,
+    ) -> Self {
+        let mut ret = Self {
+            visited_states,
+            time_reached: if is_elephant {
+                self.time_reached
+            } else {
+                time_reached
+            },
+            current_state: if is_elephant {
+                self.current_state
+            } else {
+                new_state
+            },
+            elephant_time_reached: if is_elephant {
+                time_reached
+            } else {
+                self.elephant_time_reached
+            },
+            elephant_current_state: if is_elephant {
+                new_state
+            } else {
+                self.elephant_current_state
+            },
+        };
+        let swap = if is_elephant {
+            self.current_state < new_state
+        } else {
+            new_state < self.elephant_current_state
+        };
+        if swap {
+            std::mem::swap(&mut ret.current_state, &mut ret.elephant_current_state);
+            std::mem::swap(&mut ret.time_reached, &mut ret.elephant_time_reached);
+        }
+        ret
     }
 }
 
-impl Ord for ValveState {
-    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        (self.total_pressure_released / self.step)
-            .cmp(&(other.total_pressure_released / other.step))
+impl std::fmt::Debug for State {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("State")
+            .field("visited_states", &format!("{:b}", &self.visited_states))
+            .field("time_reached", &self.time_reached)
+            .field("current_state", &self.current_state)
+            .finish()
     }
 }
 
-fn run_dijkstra(
-    adjacency_matrix: &Grid<usize>,
-    interesting_valves: &[(usize, u8)],
-    start: usize,
-    turns: usize,
-) -> usize {
-    let mut dijkstra_weight = vec![(0f32, false); adjacency_matrix.width];
-    let mut next_cells = BinaryHeap::<ValveState>::new();
-    next_cells.push(ValveState {
-        index: start,
-        step: 0,
-        total_pressure_released: 0,
-        current_flow_rate: 0,
-    });
-    let mut max_total_pressure = 0;
-    while let Some(c) = next_cells.pop() {
-        if c.step > turns {
-            return max_total_pressure;
-        }
-        max_total_pressure = std::cmp::max(
-            c.total_pressure_released + (turns - c.step) * c.current_flow_rate,
-            max_total_pressure,
-        );
-        println!("entering: {:?}", &c);
-        if dijkstra_weight[c.index].1 {
-            if next_cells.is_empty() {
-                return max_total_pressure;
-            }
-            continue;
-        }
-        dijkstra_weight[c.index].1 = true;
-        for neighbor in interesting_valves.iter() {
-            if neighbor.0 == c.index {
-                continue;
-            }
-            let move_cost = adjacency_matrix[(c.index, neighbor.0)] + 1;
-            let new_total_pressure =
-                c.total_pressure_released + c.current_flow_rate * move_cost;
-            let new_weight = (new_total_pressure + neighbor.1 as usize) as f32 / (c.step + move_cost + 1) as f32;
-            let neighbor_weight = &mut dijkstra_weight[neighbor.0].0;
-            if *neighbor_weight < new_weight {
-                *neighbor_weight = new_weight;
-                next_cells.push(ValveState {
-                    index: neighbor.0,
-                    step: c.step + move_cost,
-                    total_pressure_released: new_total_pressure,
-                    current_flow_rate: c.current_flow_rate + neighbor.1 as usize,
-                });
-            }
-        }
-        if next_cells.is_empty() {
-            return max_total_pressure;
-        }
-    }
-    unreachable!();
-}
-
-fn floyd_warshall(grid: &mut Grid<usize>) {
+fn floyd_warshall(grid: &mut Grid<u8>) {
     for i in 0..grid.width {
         grid[(i, i)] = 0;
     }
     for k in 0..grid.width {
         for i in 0..grid.width {
             for j in 0..grid.width {
-                if grid[(i, k)] != usize::max_value() && grid[(k, j)] != usize::max_value() {
+                if grid[(i, k)] != u8::max_value() && grid[(k, j)] != u8::max_value() {
                     grid[(i, j)] = std::cmp::min(grid[(i, j)], grid[(i, k)] + grid[(k, j)]);
                 }
             }
         }
     }
+}
+
+fn take_one_step(
+    adjacency_matrix: &Grid<u8>,
+    interesting_valves: &[(usize, u8)],
+    current_states: &mut HashMap<State, usize>,
+    time: u8,
+    max_time: u8,
+    max_distances: &[u8],
+    is_elephant: bool,
+) {
+    let mut new_states = vec![];
+    let mut to_remove = vec![];
+    for (state, flow) in current_states.iter() {
+        if state.time_reached(is_elephant) + max_distances[state.current_state(is_elephant)] + 1
+            < time
+        {
+            to_remove.push(state.clone());
+            continue;
+        }
+        for (target, target_flow) in interesting_valves.iter() {
+            if state.visited_states & (1 << target) != 0 {
+                continue;
+            }
+            if state.time_reached(is_elephant)
+                + adjacency_matrix[(state.current_state(is_elephant), *target)]
+                + 1
+                == time
+            {
+                let new_state = state.update_with(
+                    state.visited_states | (1 << target),
+                    *target,
+                    time,
+                    is_elephant,
+                );
+                let new_flow = flow + *target_flow as usize * (max_time - time) as usize;
+                if current_states.get(&new_state).copied().unwrap_or_default() < new_flow {
+                    new_states.push((new_state, new_flow));
+                }
+            }
+        }
+    }
+    for state in to_remove.into_iter() {
+        current_states.remove(&state);
+    }
+    for (state, flow) in new_states.into_iter() {
+        let entry = current_states.entry(state).or_default();
+        if *entry < flow {
+            *entry = flow;
+        }
+    }
+}
+
+fn step_through_time(
+    adjacency_matrix: &Grid<u8>,
+    interesting_valves: &[(usize, u8)],
+    start_index: usize,
+    max_time: u8,
+    max_distances: &[u8],
+    with_elephant: bool,
+) -> usize {
+    let mut current_states = HashMap::<State, usize>::new();
+    current_states.insert(
+        State {
+            visited_states: 1,
+            time_reached: 0,
+            current_state: start_index,
+            elephant_time_reached: 0,
+            elephant_current_state: start_index,
+        },
+        0,
+    );
+    for i in 1..=max_time {
+        take_one_step(
+            adjacency_matrix,
+            interesting_valves,
+            &mut current_states,
+            i,
+            max_time,
+            max_distances,
+            false,
+        );
+        if with_elephant {
+            take_one_step(
+                adjacency_matrix,
+                interesting_valves,
+                &mut current_states,
+                i,
+                max_time,
+                max_distances,
+                true,
+            );
+        }
+    }
+    *current_states.values().max().unwrap()
 }
 
 fn main() {
@@ -164,7 +259,7 @@ fn main() {
     let valve_names = valves.iter().map(|(name, _)| name).collect::<Vec<_>>();
     let mut adjacency_matrix = Grid {
         width: num_valves,
-        cells: vec![usize::max_value(); num_valves * num_valves],
+        cells: vec![u8::max_value(); num_valves * num_valves],
     };
     let interesting_valves = valves
         .iter()
@@ -180,13 +275,35 @@ fn main() {
         .filter(|(_, r)| *r > 0)
         .collect::<Vec<_>>();
     floyd_warshall(&mut adjacency_matrix);
-
-    let start_position = valve_names
-        .binary_search(&&ValveName([b'A', b'A']))
-        .unwrap();
+    let max_distances = (0..adjacency_matrix.width)
+        .map(|i| {
+            (0..adjacency_matrix.width)
+                .map(|j| adjacency_matrix[(i, j)])
+                .max()
+                .unwrap()
+        })
+        .collect::<Vec<_>>();
 
     println!(
         "{}",
-        run_dijkstra(&adjacency_matrix, &interesting_valves, start_position, 30)
+        step_through_time(
+            &adjacency_matrix,
+            &interesting_valves,
+            0,
+            30,
+            &max_distances,
+            false
+        )
+    );
+    println!(
+        "{}",
+        step_through_time(
+            &adjacency_matrix,
+            &interesting_valves,
+            0,
+            26,
+            &max_distances,
+            true
+        )
     );
 }
