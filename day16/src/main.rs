@@ -61,72 +61,11 @@ fn parse_valve(line: String) -> (ValveName, Valve) {
     )
 }
 
-#[derive(Eq, Hash, PartialEq, Clone)]
+#[derive(Eq, Hash, PartialEq)]
 struct State {
     visited_states: u64,
-    time_reached: u8,
-    elephant_time_reached: u8,
+    time_reached: usize,
     current_state: usize,
-    elephant_current_state: usize,
-}
-
-impl State {
-    fn current_state(&self, is_elephant: bool) -> usize {
-        if is_elephant {
-            self.elephant_current_state
-        } else {
-            self.current_state
-        }
-    }
-    fn time_reached(&self, is_elephant: bool) -> u8 {
-        if is_elephant {
-            self.elephant_time_reached
-        } else {
-            self.time_reached
-        }
-    }
-
-    fn update_with(
-        &self,
-        visited_states: u64,
-        new_state: usize,
-        time_reached: u8,
-        is_elephant: bool,
-    ) -> Self {
-        let mut ret = Self {
-            visited_states,
-            time_reached: if is_elephant {
-                self.time_reached
-            } else {
-                time_reached
-            },
-            current_state: if is_elephant {
-                self.current_state
-            } else {
-                new_state
-            },
-            elephant_time_reached: if is_elephant {
-                time_reached
-            } else {
-                self.elephant_time_reached
-            },
-            elephant_current_state: if is_elephant {
-                new_state
-            } else {
-                self.elephant_current_state
-            },
-        };
-        let swap = if is_elephant {
-            self.current_state < new_state
-        } else {
-            new_state < self.elephant_current_state
-        };
-        if swap {
-            std::mem::swap(&mut ret.current_state, &mut ret.elephant_current_state);
-            std::mem::swap(&mut ret.time_reached, &mut ret.elephant_time_reached);
-        }
-        ret
-    }
 }
 
 impl std::fmt::Debug for State {
@@ -139,14 +78,14 @@ impl std::fmt::Debug for State {
     }
 }
 
-fn floyd_warshall(grid: &mut Grid<u8>) {
+fn floyd_warshall(grid: &mut Grid<usize>) {
     for i in 0..grid.width {
         grid[(i, i)] = 0;
     }
     for k in 0..grid.width {
         for i in 0..grid.width {
             for j in 0..grid.width {
-                if grid[(i, k)] != u8::max_value() && grid[(k, j)] != u8::max_value() {
+                if grid[(i, k)] != usize::max_value() && grid[(k, j)] != usize::max_value() {
                     grid[(i, j)] = std::cmp::min(grid[(i, j)], grid[(i, k)] + grid[(k, j)]);
                 }
             }
@@ -154,99 +93,53 @@ fn floyd_warshall(grid: &mut Grid<u8>) {
     }
 }
 
-fn take_one_step(
-    adjacency_matrix: &Grid<u8>,
-    interesting_valves: &[(usize, u8)],
-    current_states: &mut HashMap<State, usize>,
-    time: u8,
-    max_time: u8,
-    max_distances: &[u8],
-    is_elephant: bool,
-) {
-    let mut new_states = vec![];
-    let mut to_remove = vec![];
-    for (state, flow) in current_states.iter() {
-        if state.time_reached(is_elephant) + max_distances[state.current_state(is_elephant)] + 1
-            < time
-        {
-            to_remove.push(state.clone());
-            continue;
-        }
-        for (target, target_flow) in interesting_valves.iter() {
-            if state.visited_states & (1 << target) != 0 {
-                continue;
-            }
-            if state.time_reached(is_elephant)
-                + adjacency_matrix[(state.current_state(is_elephant), *target)]
-                + 1
-                == time
-            {
-                let new_state = state.update_with(
-                    state.visited_states | (1 << target),
-                    *target,
-                    time,
-                    is_elephant,
-                );
-                let new_flow = flow + *target_flow as usize * (max_time - time) as usize;
-                if current_states.get(&new_state).copied().unwrap_or_default() < new_flow {
-                    new_states.push((new_state, new_flow));
-                }
-            }
-        }
-    }
-    for state in to_remove.into_iter() {
-        current_states.remove(&state);
-    }
-    for (state, flow) in new_states.into_iter() {
-        let entry = current_states.entry(state).or_default();
-        if *entry < flow {
-            *entry = flow;
-        }
-    }
-}
-
 fn step_through_time(
-    adjacency_matrix: &Grid<u8>,
+    adjacency_matrix: &Grid<usize>,
     interesting_valves: &[(usize, u8)],
     start_index: usize,
-    max_time: u8,
-    max_distances: &[u8],
-    with_elephant: bool,
-) -> usize {
+    max_time: usize,
+    max_distance: usize,
+) -> HashMap<State, usize> {
     let mut current_states = HashMap::<State, usize>::new();
     current_states.insert(
         State {
-            visited_states: 1,
+            visited_states: 0,
             time_reached: 0,
             current_state: start_index,
-            elephant_time_reached: 0,
-            elephant_current_state: start_index,
         },
         0,
     );
     for i in 1..=max_time {
-        take_one_step(
-            adjacency_matrix,
-            interesting_valves,
-            &mut current_states,
-            i,
-            max_time,
-            max_distances,
-            false,
-        );
-        if with_elephant {
-            take_one_step(
-                adjacency_matrix,
-                interesting_valves,
-                &mut current_states,
-                i,
-                max_time,
-                max_distances,
-                true,
-            );
+        let mut new_states = vec![];
+        for (state, flow) in current_states.iter() {
+            if state.time_reached + max_distance + 1 < i {
+                continue;
+            }
+            for (target, target_flow) in interesting_valves.iter() {
+                if state.visited_states & (1 << target) != 0 {
+                    continue;
+                }
+                if state.time_reached + adjacency_matrix[(state.current_state, *target)] + 1 == i {
+                    let new_state = State {
+                        visited_states: state.visited_states | (1 << target),
+                        time_reached: i,
+                        current_state: *target,
+                    };
+                    let new_flow = flow + *target_flow as usize * (max_time - i);
+                    if current_states.get(&new_state).copied().unwrap_or_default() < new_flow {
+                        new_states.push((new_state, new_flow));
+                    }
+                }
+            }
+        }
+        for (state, flow) in new_states.into_iter() {
+            let entry = current_states.entry(state).or_default();
+            if *entry < flow {
+                *entry = flow;
+            }
         }
     }
-    *current_states.values().max().unwrap()
+    current_states
 }
 
 fn main() {
@@ -259,7 +152,7 @@ fn main() {
     let valve_names = valves.iter().map(|(name, _)| name).collect::<Vec<_>>();
     let mut adjacency_matrix = Grid {
         width: num_valves,
-        cells: vec![u8::max_value(); num_valves * num_valves],
+        cells: vec![usize::max_value(); num_valves * num_valves],
     };
     let interesting_valves = valves
         .iter()
@@ -275,35 +168,51 @@ fn main() {
         .filter(|(_, r)| *r > 0)
         .collect::<Vec<_>>();
     floyd_warshall(&mut adjacency_matrix);
-    let max_distances = (0..adjacency_matrix.width)
-        .map(|i| {
-            (0..adjacency_matrix.width)
-                .map(|j| adjacency_matrix[(i, j)])
+    let max_distance = interesting_valves
+        .iter()
+        .map(|(i, _)| {
+            interesting_valves
+                .iter()
+                .map(|(j, _)| adjacency_matrix[(*i, *j)])
                 .max()
                 .unwrap()
         })
-        .collect::<Vec<_>>();
+        .max()
+        .unwrap();
 
-    println!(
-        "{}",
-        step_through_time(
-            &adjacency_matrix,
-            &interesting_valves,
-            0,
-            30,
-            &max_distances,
-            false
-        )
-    );
-    println!(
-        "{}",
-        step_through_time(
-            &adjacency_matrix,
-            &interesting_valves,
-            0,
-            26,
-            &max_distances,
-            true
-        )
-    );
+    {
+        let all_reachable_states =
+            step_through_time(&adjacency_matrix, &interesting_valves, 0, 30, max_distance);
+        let max_flow = *all_reachable_states.values().max().unwrap();
+        println!("{}", max_flow);
+    }
+
+    {
+        let all_reachable_states =
+            step_through_time(&adjacency_matrix, &interesting_valves, 0, 26, max_distance);
+        let mut max_flow = *all_reachable_states.values().max().unwrap();
+        let mut states_for_flow = all_reachable_states
+            .iter()
+            .map(|(state, flow)| (flow, state))
+            .collect::<Vec<_>>();
+        states_for_flow.sort_by_key(|(flow, _)| usize::max_value() - *flow);
+
+        for i in 0..states_for_flow.len() - 1 {
+            let s1 = states_for_flow[i];
+            if s1.0 + states_for_flow[i + 1].0 < max_flow {
+                break;
+            }
+            for j in (i + 1)..states_for_flow.len() {
+                let s2 = states_for_flow[j];
+                let new_flow = s1.0 + s2.0;
+                if new_flow < max_flow {
+                    break;
+                }
+                if s1.1.visited_states & s2.1.visited_states == 0 {
+                    max_flow = std::cmp::max(max_flow, new_flow);
+                }
+            }
+        }
+        println!("{}", max_flow);
+    }
 }
