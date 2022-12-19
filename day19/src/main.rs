@@ -49,7 +49,7 @@ fn recurse_simulation(
         }
         let recipe = &blueprint.recipes[i];
         // Find the limiting ore for the recipe.
-        let wait_time = match (0..recipe.len())
+        let wait_time = (0..recipe.len())
             .filter_map(|ore_type| {
                 if recipe[ore_type] == 0 {
                     None
@@ -66,10 +66,7 @@ fn recurse_simulation(
                 }
             })
             .max()
-        {
-            None => continue,
-            Some(wait_time) => wait_time,
-        };
+            .unwrap();
         let time_finished = state.time + wait_time + 1;
         if time_finished >= max_time {
             continue;
