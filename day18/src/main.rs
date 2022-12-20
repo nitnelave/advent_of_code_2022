@@ -1,4 +1,9 @@
 #![feature(iter_intersperse)]
+
+mod union_find;
+
+use crate::union_find::UnionFind;
+
 #[derive(PartialEq, Eq, PartialOrd, Ord)]
 struct Point {
     x: usize,
@@ -77,11 +82,8 @@ fn count_inner_faces(points: &mut [Point]) -> (usize, Point) {
     )
 }
 
-fn count_connected_components_outer_faces(
-    is_lava: &Grid<bool>,
-    max_num_components: usize,
-) -> usize {
-    let mut union_find = petgraph::unionfind::UnionFind::<u16>::new(max_num_components);
+fn count_connected_components_outer_faces(is_lava: &Grid<bool>) -> usize {
+    let mut union_find = UnionFind::new();
     let mut labels = Grid::new(
         is_lava.height,
         is_lava.width,
@@ -152,7 +154,7 @@ fn main() {
         .collect::<Vec<_>>();
     let (inner_faces, max_coords) = count_inner_faces(&mut droplets);
     let total_faces = 6 * droplets.len() - 2 * inner_faces;
-    println!("{}", total_faces);
+    println!("{total_faces}");
     let grid = {
         let mut grid = Grid::new(max_coords.x + 1, max_coords.y + 1, max_coords.z + 1, false);
         for d in droplets.iter() {
@@ -160,6 +162,6 @@ fn main() {
         }
         grid
     };
-    let inner_faces = count_connected_components_outer_faces(&grid, droplets.len() / 4);
+    let inner_faces = count_connected_components_outer_faces(&grid);
     println!("{}", total_faces - inner_faces);
 }
