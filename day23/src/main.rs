@@ -1,7 +1,46 @@
-use std::{
-    cell::RefCell,
-    collections::{HashMap, HashSet},
-};
+use std::collections::{HashMap, HashSet};
+
+struct Grid {
+    cells: Vec<i64>,
+    width: i64,
+}
+
+fn next_power_of_2(mut v: usize) -> usize {
+    v -= 1;
+    v |= v >> 1;
+    v |= v >> 2;
+    v |= v >> 4;
+    v |= v >> 8;
+    v |= v >> 16;
+    v += 1;
+    v
+}
+
+impl Grid {
+    fn new(width: usize) -> Self {
+        let h = next_power_of_2(3 * width);
+        let w = h / 8;
+        Grid {
+            cells: vec![0; h * w],
+            width: w as i64,
+        }
+    }
+
+    fn at(&self, index: Point) -> bool {
+        // offset by width, width
+        let cell_index = (index.x + self.width + 1) * self.width + index.y / 8;
+        (self.cells[cell_index as usize] & (1 << index.y % 8)) != 0
+    }
+
+    fn set(&mut self, index: Point, val: bool) {
+        let cell_index = (index.x + self.width + 1) * self.width + index.y / 8;
+        if val {
+            self.cells[cell_index as usize] |= 1 << index.y % 8
+        } else {
+            self.cells[cell_index as usize] &= !(1 << index.y % 8)
+        }
+    }
+}
 
 #[derive(PartialEq, Eq, Hash, Clone, Copy, Debug)]
 struct Point {
@@ -42,19 +81,19 @@ impl Direction {
 #[derive(Default, Debug, PartialEq, Eq)]
 struct Elf {
     last_direction: Direction,
-    wants_to_move: bool,
 }
 
-fn get_proposals(elves: &mut HashMap<Point, RefCell<Elf>>) -> HashMap<Point, Option<Point>> {
+fn get_proposals(
+    elves: &HashSet<Point>,
+    grid: &Grid,
+    first_direction: Direction,
+) -> HashMap<Point, Option<Point>> {
     let mut proposals = HashMap::new();
-    for (position, elf) in elves.iter() {
-        let next_dir = elf.borrow().last_direction.next();
-        elf.borrow_mut().last_direction = next_dir;
-        elf.borrow_mut().wants_to_move = false;
+    for position in elves.iter() {
         let mut count = 0;
         for i in -1..2 {
             for j in -1..2 {
-                if elves.contains_key(&Point {
+                if grid.at(Point {
                     x: position.x + i,
                     y: position.y + j,
                 }) {
@@ -65,10 +104,10 @@ fn get_proposals(elves: &mut HashMap<Point, RefCell<Elf>>) -> HashMap<Point, Opt
         if count == 1 {
             continue;
         }
-        let mut direction = elf.borrow().last_direction;
+        let mut direction = first_direction;
         'direction: for _ in 0..4 {
             for (dx, dy) in direction.checks() {
-                if elves.contains_key(&Point {
+                if grid.at(Point {
                     x: position.x + dx,
                     y: position.y + dy,
                 }) {
@@ -76,7 +115,6 @@ fn get_proposals(elves: &mut HashMap<Point, RefCell<Elf>>) -> HashMap<Point, Opt
                     continue 'direction;
                 }
             }
-            elf.borrow_mut().wants_to_move = true;
             let (dx, dy) = direction.checks()[1];
             proposals
                 .entry(Point {
@@ -92,23 +130,26 @@ fn get_proposals(elves: &mut HashMap<Point, RefCell<Elf>>) -> HashMap<Point, Opt
 }
 
 fn apply_proposals(
-    elves: &mut HashMap<Point, RefCell<Elf>>,
+    elves: &mut HashSet<Point>,
+    grid: &mut Grid,
     proposals: HashMap<Point, Option<Point>>,
 ) -> bool {
     let mut has_moved = false;
     for (target, maybe_from) in proposals {
         if let Some(from) = maybe_from {
-            let elf = elves.remove(&from).unwrap();
-            assert_eq!(elves.insert(target, elf), None);
+            assert_eq!(elves.remove(&from), true);
+            grid.set(from, false);
+            assert_eq!(elves.insert(target), true);
+            grid.set(target, true);
             has_moved = true;
         }
     }
     has_moved
 }
 
-fn try_to_move(elves: &mut HashMap<Point, RefCell<Elf>>) -> bool {
-    let proposals = get_proposals(elves);
-    apply_proposals(elves, proposals)
+fn try_to_move(elves: &mut HashSet<Point>, grid: &mut Grid, first_direction: Direction) -> bool {
+    let proposals = get_proposals(elves, grid, first_direction);
+    apply_proposals(elves, grid, proposals)
 }
 
 fn main() {
@@ -123,34 +164,43 @@ fn main() {
                 .enumerate()
                 .flat_map(move |(y, b)| {
                     if b == b'#' {
-                        Some((
-                            Point {
-                                x: x as i64,
-                                y: y as i64,
-                            },
-                            RefCell::from(Elf::default()),
-                        ))
+                        Some(Point {
+                            x: x as i64,
+                            y: y as i64,
+                        })
                     } else {
                         None
                     }
                 })
                 .collect::<Vec<_>>()
         })
-        .collect::<HashMap<_, _>>();
+        .collect::<HashSet<_>>();
+    let bounds = |map: &HashSet<Point>| {
+        let min_x = map.iter().map(|p| p.x).min().unwrap();
+        let min_y = map.iter().map(|p| p.y).min().unwrap();
+        let max_x = map.iter().map(|p| p.x).max().unwrap();
+        let max_y = map.iter().map(|p| p.y).max().unwrap();
+        ((max_x - min_x + 1) as usize, (max_y - min_y + 1) as usize)
+    };
+    let mut grid = {
+        let (width, height) = bounds(&elves);
+        let mut grid = Grid::new(std::cmp::max(width, height));
+        for pos in elves.iter() {
+            grid.set(*pos, true);
+        }
+        grid
+    };
+    let mut first_direction = Direction::NORTH;
     for _ in 0..10 {
-        try_to_move(&mut elves);
+        try_to_move(&mut elves, &mut grid, first_direction);
+        first_direction = first_direction.next();
     }
-    let min_x = elves.keys().map(|p| p.x).min().unwrap();
-    let min_y = elves.keys().map(|p| p.y).min().unwrap();
-    let max_x = elves.keys().map(|p| p.x).max().unwrap();
-    let max_y = elves.keys().map(|p| p.y).max().unwrap();
-    println!(
-        "{}",
-        ((max_x - min_x + 1) * (max_y - min_y + 1)) as usize - elves.len()
-    );
+    let (width, height) = bounds(&elves);
+    println!("{}", (width * height) - elves.len());
     let mut counter = 11;
-    while try_to_move(&mut elves) {
+    while try_to_move(&mut elves, &mut grid, first_direction) {
         counter += 1;
+        first_direction = first_direction.next();
     }
     println!("{}", counter);
 }
