@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 
-#[derive(PartialEq, Eq, Hash, Clone, Copy, Debug)]
+#[derive(PartialEq, Eq, Hash, Clone, Copy, Debug, PartialOrd, Ord)]
 struct Point {
     x: i64,
     y: i64,
@@ -36,27 +36,14 @@ impl std::ops::Add<Direction> for Point {
     type Output = Point;
 
     fn add(self, dir: Direction) -> Self::Output {
-        match dir {
-            Direction::NORTH => Point {
-                x: self.x - 1,
-                ..self
-            },
-            Direction::EAST => Point {
-                y: self.y + 1,
-                ..self
-            },
-            Direction::SOUTH => Point {
-                x: self.x + 1,
-                ..self
-            },
-            Direction::WEST => Point {
-                y: self.y - 1,
-                ..self
-            },
+        Point {
+            x: self.x + dir.to_coords().0,
+            y: self.y + dir.to_coords().1,
         }
     }
 }
 
+#[derive(Clone)]
 struct Grid {
     cells: Vec<u8>,
     width: usize,
@@ -112,9 +99,6 @@ impl BlizzardGrid {
     }
 
     fn at(&self, p: Point, turn: usize) -> bool {
-        if p.x == self.height + 1 || p.x == 0 {
-            return false;
-        }
         let shifted_point = Point {
             x: (p.x - 1 - turn as i64 * self.direction.0).rem_euclid(self.height) + 1,
             y: (p.y - 1 - turn as i64 * self.direction.1).rem_euclid(self.width) + 1,
@@ -123,66 +107,68 @@ impl BlizzardGrid {
     }
 }
 
-fn walk_one_step(
-    from: Point,
+#[derive(PartialEq, Eq, PartialOrd, Ord)]
+struct Cell {
+    weight: usize,
     turn: usize,
-    exit: Point,
-    walls: &Grid,
-    blizzards: &[BlizzardGrid; 4],
-    reachable_squares: &mut HashSet<Point>,
-) -> bool {
-    let check_blizzards = |p| blizzards.iter().any(|b| b.at(p, turn));
-
-    if !check_blizzards(from) {
-        reachable_squares.insert(from);
-    }
-    for d in CARDINALS {
-        let p = from + d;
-        if !walls.at(p) && !check_blizzards(p) {
-            if p == exit {
-                return true;
-            }
-            reachable_squares.insert(p);
-        }
-    }
-    false
+    point: Point,
 }
 
-fn walk_one_turn(
-    turn: usize,
-    exit: Point,
-    walls: &Grid,
-    blizzards: &[BlizzardGrid; 4],
-    previously_reachable_squares: &HashSet<Point>,
-) -> (HashSet<Point>, bool) {
-    let mut reachable_squares = HashSet::new();
-    let exited = previously_reachable_squares
-        .iter()
-        .any(|p| walk_one_step(*p, turn, exit, walls, blizzards, &mut reachable_squares));
-    (reachable_squares, exited)
-}
-
-fn walk_to_exit(
+fn dijkstra_to_exit(
     from: Point,
     exit: Point,
     starting_turn: usize,
     walls: &Grid,
     blizzards: &[BlizzardGrid; 4],
 ) -> usize {
-    let mut reachable_squares = HashSet::new();
-    assert!(!walls.at(from));
-    assert!(!walls.at(exit));
-    for turn in starting_turn + 1.. {
-        if !blizzards.iter().any(|b| b.at(from, turn)) {
-            reachable_squares.insert(from);
+    let mut visited = HashSet::new();
+    let mut next_cells = std::collections::BTreeSet::<Cell>::new();
+    let distance_to_exit = |p: Point| (exit.x.abs_diff(p.x) + exit.y.abs_diff(p.y)) as usize;
+    let blocked_by_blizzards = |p, turn| blizzards.iter().any(|b| b.at(p, turn));
+    let mut last_weight;
+    let mut last_start_turn = starting_turn;
+    let distance_from_start_to_exit = distance_to_exit(from);
+    loop {
+        last_start_turn += 1;
+        while blocked_by_blizzards(from, last_start_turn) || visited.contains(&(from, last_start_turn)) {
+            last_start_turn += 1;
         }
-        let (new_squares, exit) = walk_one_turn(turn, exit, walls, blizzards, &reachable_squares);
-        if exit {
-            return turn;
+        last_weight = last_start_turn + distance_from_start_to_exit;
+        next_cells.insert(Cell { weight: last_weight, turn: last_start_turn, point: from });
+        while let Some(c) = next_cells.pop_first() {
+            if c.point == exit {
+                return c.turn + 1;
+            }
+            if visited.contains(&(c.point, c.turn)) {
+                continue;
+            }
+            visited.insert((c.point, c.turn));
+            while c.weight > last_weight {
+                last_weight += 1;
+                last_start_turn += 1;
+                if !blocked_by_blizzards(from, last_start_turn) {
+                    next_cells.insert(Cell { weight: last_weight, turn: last_start_turn, point: from });
+                }
+            }
+            if !blocked_by_blizzards(c.point, c.turn + 1) {
+                next_cells.insert(Cell {
+                    weight: c.weight + 1,
+                    turn: c.turn + 1,
+                    point: c.point,
+                });
+            }
+            for dir in CARDINALS {
+                let p = c.point + dir;
+                if !walls.at(p) && !blocked_by_blizzards(p, c.turn + 1) {
+                    next_cells.insert(Cell {
+                        weight: c.turn + 1 + distance_to_exit(p),
+                        turn: c.turn + 1,
+                        point: p,
+                    });
+                }
+            }
         }
-        reachable_squares = new_squares;
     }
-    unreachable!()
 }
 
 fn main() {
@@ -226,28 +212,31 @@ fn main() {
     });
     let entrance = entrance.unwrap();
     walls.set(entrance, true);
+    walls.set(exit, true);
     let blizzards = [
         BlizzardGrid::new(blizzards_grid.pop().unwrap(), width, Direction::NORTH),
         BlizzardGrid::new(blizzards_grid.pop().unwrap(), width, Direction::EAST),
         BlizzardGrid::new(blizzards_grid.pop().unwrap(), width, Direction::SOUTH),
         BlizzardGrid::new(blizzards_grid.pop().unwrap(), width, Direction::WEST),
     ];
-    let last_turn = walk_to_exit(entrance + Direction::SOUTH, exit, 0, &walls, &blizzards);
-    println!("{last_turn}");
-    walls.set(exit, true);
-    walls.set(entrance, false);
-    let last_turn = walk_to_exit(
+    let last_turn = dijkstra_to_exit(
+        entrance + Direction::SOUTH,
         exit + Direction::NORTH,
-        entrance,
+        0,
+        &walls,
+        &blizzards,
+    );
+    println!("{last_turn}");
+    let last_turn = dijkstra_to_exit(
+        exit + Direction::NORTH,
+        entrance + Direction::SOUTH,
         last_turn,
         &walls,
         &blizzards,
     );
-    walls.set(entrance, true);
-    walls.set(exit, false);
-    let last_turn = walk_to_exit(
+    let last_turn = dijkstra_to_exit(
         entrance + Direction::SOUTH,
-        exit,
+        exit + Direction::NORTH,
         last_turn,
         &walls,
         &blizzards,
