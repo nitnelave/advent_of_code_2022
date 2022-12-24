@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{HashSet, BTreeSet};
 
 #[derive(PartialEq, Eq, Hash, Clone, Copy, Debug, PartialOrd, Ord)]
 struct Point {
@@ -122,7 +122,7 @@ fn dijkstra_to_exit(
     blizzards: &[BlizzardGrid; 4],
 ) -> usize {
     let mut visited = HashSet::new();
-    let mut next_cells = std::collections::BTreeSet::<Cell>::new();
+    let mut next_cells = BTreeSet::<Cell>::new();
     let distance_to_exit = |p: Point| (exit.x.abs_diff(p.x) + exit.y.abs_diff(p.y)) as usize;
     let blocked_by_blizzards = |p, turn| blizzards.iter().any(|b| b.at(p, turn));
     let mut last_weight;
@@ -143,7 +143,7 @@ fn dijkstra_to_exit(
                 continue;
             }
             visited.insert((c.point, c.turn));
-            while c.weight > last_weight {
+            if c.weight > last_weight {
                 last_weight += 1;
                 last_start_turn += 1;
                 if !blocked_by_blizzards(from, last_start_turn) {
